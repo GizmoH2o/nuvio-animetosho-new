@@ -36,47 +36,64 @@ function getAnime(tmdbId) {
   });
 }
 
-function searchAnimeTosho(title, aid) {
-  var params = ['cat=2020', 'limit=100', 'order=seeders-d', 'q=' + encodeURIComponent(title)];
+function searchAnimeTosho(title, aid, page) {
+  var params = ['cat=2020', 'limit=100', 'order=seeders-d', 'page=' + (page || 1), 'q=' + encodeURIComponent(title)];
   if (aid) params.push('aid=' + encodeURIComponent(String(aid)));
   return fetchJson(ANIMETOSHO_API + '?' + params.join('&')).then(function (items) {
     return Array.isArray(items) ? items : [];
   });
 }
 
-function getStreams(tmdbId, mediaType, season, episode) {
-  return getAnime(tmdbId).then(function (anime) {
-    var requests = [];
-    anime.titles.forEach(function (title, index) {
-      // The canonical title can be restricted by AniDB id. Synonyms cannot:
-      // AniMap may combine several entries from a franchise in one response.
-      if (index === 0 && anime.aids.length) {
-        anime.aids.slice(0, 4).forEach(function (aid) { requests.push(searchAnimeTosho(title, aid)); });
-      } else {
-        requests.push(searchAnimeTosho(title, null));
-      }
-    });
-    return Promise.all(requests);
-  }).then(function (pages) {
+function fetchTorrentsPaginated(title, aid) {
+  // AnimeTosho's own provider walks three pages. This matters for older shows
+  // and releases which were sorted below the current high-seeder results.
+  return Promise.all([1, 2, 3].map(function (page) {
+    return searchAnimeTosho(title, aid, page);
+  })).then(function (pages) {
     var torrents = [];
     pages.forEach(function (page) { torrents = torrents.concat(page); });
+    return torrents;
+  });
+}
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  return getAnime(tmdbId).then(function (anime) {
+    var idRequests = anime.aids.slice(0, 4).map(function (aid) {
+      // The AID is exact and gives us all releases, including ones whose
+      // release title does not contain AniMap's canonical title.
+      return fetchTorrentsPaginated('', aid);
+    });
+    // Follow the original provider's sequence: search by ID first, and only
+    // issue broader title searches if the ID lookup did not produce anything.
+    return Promise.all(idRequests).then(function (pages) {
+      if (flattenPages(pages).length || !anime.titles.length) return pages;
+      return Promise.all(anime.titles.map(function (title) {
+        return fetchTorrentsPaginated(title, null);
+      }));
+    });
+  }).then(function (pages) {
+    var torrents = flattenPages(pages);
     torrents = uniqueBy(torrents, function (torrent) {
       return torrent.info_hash || torrent.magnet_uri || torrent.torrent_url;
     });
     if (mediaType === 'tv' || mediaType === 'series') {
       torrents = filterEpisodes(torrents, Number(season || 1), Number(episode || 1));
     }
-    return torrents.sort(function (left, right) {
-      return (Number(right.seeders) || 0) - (Number(left.seeders) || 0);
-    }).slice(0, MAX_RESULTS).map(toNuvioStream);
+    return torrents.sort(compareTorrents).slice(0, MAX_RESULTS).map(toNuvioStream);
   }).catch(function (error) {
     console.error('[AnimeTosho] ' + (error && error.message ? error.message : String(error)));
     return [];
   });
 }
 
+function flattenPages(pages) {
+  var torrents = [];
+  pages.forEach(function (page) { torrents = torrents.concat(page); });
+  return torrents;
+}
+
 function filterEpisodes(torrents, season, episode) {
-  var includeBatches = !!getRuntimeSettings().includeBatches;
+  var includeBatches = getRuntimeSettings().includeBatches !== false;
   return torrents.filter(function (torrent) {
     var title = String(torrent.title || '');
     return matchesEpisode(title, season, episode) || (includeBatches && isBatch(title));
@@ -92,7 +109,19 @@ function matchesEpisode(title, season, episode) {
   var bracketed = new RegExp('[\\[\\(]0?' + ep + '(?:v\\d+)?[\\]\\)]', 'i');
   var dashed = new RegExp('(?:^|\\s)-\\s*0?' + ep + '(?:v\\d+)?\\b', 'i');
   var padded = new RegExp('\\s' + ep2 + '(?=\\s*(?:[\\[\\(]|$))', 'i');
-  return seasonEpisode.test(title) || labelled.test(title) || bracketed.test(title) || dashed.test(title) || padded.test(title);
+  return seasonEpisode.test(title) || labelled.test(title) || bracketed.test(title) || dashed.test(title) || padded.test(title) ||
+    episodeIsInRange(title, episode);
+}
+
+function episodeIsInRange(title, episode) {
+  var range = /(?:\bS\d{1,2}[ ._-]*)?E?(\d{1,3})(?:v\d+)?\s*(?:-|~|\.\.|to|through)\s*(?:S\d{1,2}[ ._-]*E?)?(\d{1,3})(?:v\d+)?\b/gi;
+  var match;
+  while ((match = range.exec(title)) !== null) {
+    var from = Number(match[1]);
+    var to = Number(match[2]);
+    if (to > from && episode >= from && episode <= to) return true;
+  }
+  return false;
 }
 
 function isBatch(title) {
@@ -135,6 +164,18 @@ function qualityFrom(title) {
   return match ? match[1] + 'p' : 'Unknown';
 }
 
+function resolutionValue(title) {
+  var match = String(title).match(/\b(2160|1440|1080|720|576|480)p?\b/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function compareTorrents(left, right) {
+  // Requested ordering: highest resolution first, then most seeders.
+  var resolutionDifference = resolutionValue(right.title) - resolutionValue(left.title);
+  if (resolutionDifference) return resolutionDifference;
+  return (Number(right.seeders) || 0) - (Number(left.seeders) || 0);
+}
+
 function humanSize(bytes) {
   if (!bytes) return 'unknown size';
   var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
@@ -160,7 +201,7 @@ function pad2(value) { return ('0' + value).slice(-2); }
 
 function onSettings() {
   return Promise.resolve([{
-    type: 'toggle', key: 'includeBatches', label: 'Include batch torrents for TV episodes', default: false
+    type: 'toggle', key: 'includeBatches', label: 'Include batch torrents for TV episodes', default: true
   }]);
 }
 
