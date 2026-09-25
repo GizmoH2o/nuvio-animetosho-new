@@ -1,0 +1,27 @@
+{
+  "name": "GizmoH2o's Repo",
+  "version": "1.0.0",
+  "scrapers": [
+    {
+      "id": "AnimeTosho (NEW)",
+      "name": "AnimeTosho (NEW)",
+      "description": "AnimeTosho (NEW) direct links",
+      "version": "1.0.2",
+      "author": "Nuvio Team",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "https://raw.githubusercontent.com/faddix/seanime-animetosho-new/refs/heads/main/animetosho-new.ts",
+      "enabled": true,
+      "formats": [
+        "mp4",
+        "mkv"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=4khdhub.click&sz=128",
+      "contentLanguage": [
+        "en"
+      ]
+    } 
+  ]
+}
