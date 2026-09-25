@@ -79,7 +79,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
     if (mediaType === 'tv' || mediaType === 'series') {
       torrents = filterEpisodes(torrents, Number(season || 1), Number(episode || 1));
     }
-    return torrents.sort(compareTorrents).slice(0, MAX_RESULTS).map(toNuvioStream);
+    return torrents
+      .filter(function (torrent) { return Number(torrent.seeders) > 0; })
+      .sort(compareTorrents)
+      .slice(0, MAX_RESULTS)
+      .map(toNuvioStream);
   }).catch(function (error) {
     console.error('[AnimeTosho] ' + (error && error.message ? error.message : String(error)));
     return [];
@@ -170,7 +174,7 @@ function resolutionValue(title) {
 }
 
 function compareTorrents(left, right) {
-  // Requested ordering: highest resolution first, then most seeders.
+  // Requested ordering: highest resolution first, then highest seeder count.
   var resolutionDifference = resolutionValue(right.title) - resolutionValue(left.title);
   if (resolutionDifference) return resolutionDifference;
   return (Number(right.seeders) || 0) - (Number(left.seeders) || 0);
