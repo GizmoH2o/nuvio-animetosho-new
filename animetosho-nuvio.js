@@ -5,7 +5,13 @@
 var PROVIDER_NAME = '🧲 AnimeTosho';
 var ANIMAP_API = 'https://animap.id/api/map/tmdb/';
 var ANIMETOSHO_API = 'https://feed.animetosho.org/json';
-var MAX_RESULTS = 15;
+var MAX_RESULTS = 50;
+var TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://exodus.desync.com:6969/announce'
+];
 
 function fetchJson(url, options) {
   // Nuvio's fetch implementation is deliberately minimal: only use json().
@@ -102,6 +108,9 @@ function toNuvioStream(torrent) {
   var details = '📺 ' + title + '\n' +
     '💎 ' + quality + ' | 👤 ' + seeders + ' seeders\n' +
     '💾 ' + humanSize(Number(torrent.total_size) || 0) + ' | AnimeTosho';
+  // AnimeTosho's magnet_uri commonly encodes BTIH as Base32. Nuvio validates
+  // hashes as 40/64-character hexadecimal strings, so build it from info_hash.
+  var magnet = buildHexMagnet(torrent.info_hash) || torrent.torrent_url || '';
   // This core shape mirrors the working Torrentio Nuvio provider. Nuvio's
   // P2P/debrid integration consumes the supplied magnet URL.
   return {
@@ -109,8 +118,16 @@ function toNuvioStream(torrent) {
     title: details,
     size: details,
     description: details,
-    url: torrent.magnet_uri || torrent.torrent_url || ''
+    url: magnet
   };
+}
+
+function buildHexMagnet(infoHash) {
+  var hash = String(infoHash || '').trim();
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(hash)) return '';
+  return 'magnet:?xt=urn:btih:' + hash.toLowerCase() + TRACKERS.map(function (tracker) {
+    return '&tr=' + encodeURIComponent(tracker);
+  }).join('');
 }
 
 function qualityFrom(title) {
