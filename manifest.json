@@ -23,28 +23,6 @@
       "contentLanguage": [
         "en"
       ]
-    },
-    {
-      "id": "Miruro TV",
-      "name": "Miruro TV",
-      "description": "Miruro TV direct links",
-      "version": "1.0.1",
-      "author": "GizmoH2o",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "https://raw.githubusercontent.com/GizmoH2o/nuvio-animetosho-new/refs/heads/main/miruro-tv-nuvio.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "mkv", 
-        "m3u8"
-      ],
-      "logo": "https://www.miruro.com/icon-light-1024x1024.svg",
-      "contentLanguage": [
-        "en"
-      ]
     }
   ]
 }
